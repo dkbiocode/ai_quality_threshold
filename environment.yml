@@ -1,0 +1,13 @@
+name: ai-fastqc-choose-point
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.13
+  - openai
+  - numpy
+  - dnaio
+  - pip
+  - pip:
+    - git+https://github.com/dkbiocode/fastq-chunk.git
+

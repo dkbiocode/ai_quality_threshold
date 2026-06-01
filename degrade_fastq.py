@@ -16,15 +16,48 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DegradeParams:
-    tail_start:    int
-    tail_slope:    float
-    global_noise:  float
-    dropout_rate:  float
-    dropout_floor: float
-    seed:          int
-    min_qual:      int = 0
-    max_qual:      int = 40
-
+    """
+    Parameters controlling synthetic quality degradation of FASTQ reads.
+    
+    Three degradation modes are applied in order:
+    
+    1. TAIL DEGRADATION: Simulates progressive signal decay toward read ends,
+       caused by polymerase exhaustion and phasing accumulation.
+       
+       tail_start:  Position where quality decay begins. Default 150 means the
+                    first 150 bases are unaffected by tail decay.
+       tail_slope:  Phred score penalty per position past tail_start. Default 0.15
+                    means a read at position 250 loses (250-150)*0.15 = 15 Phred
+                    points from tail decay alone.
+    
+    2. GLOBAL NOISE: Simulates random per-base signal variation from optical
+       crosstalk, incomplete cleavage, and general instrument noise.
+       
+       global_noise: Standard deviation of Gaussian noise added at every position.
+                    Default 2.0 means ~95% of bases shift by ±4 Phred points.
+    
+    3. DROPOUT: Simulates sporadic low-quality positions caused by bubbles,
+       surface chemistry failures, or damaged flow cell regions.
+       
+       dropout_rate:  Fraction of positions affected. Default 0.02 means ~1 in 50
+                     bases receives a severe quality drop.
+       dropout_floor: Minimum Phred score assigned to dropout positions. Default 0
+                     allows dropouts to hit the lowest possible quality.
+    
+    GENERAL:
+    
+       seed:     Base random seed. Chunk index is added for per-chunk reproducibility.
+       min_qual: Absolute Phred floor after all degradation. Default 0.
+       max_qual: Absolute Phred ceiling. Default 40 (standard Illumina max).
+    """
+    tail_start:    int   = 150
+    tail_slope:    float = 0.15
+    global_noise:  float = 2.0
+    dropout_rate:  float = 0.02
+    dropout_floor: float = 0
+    seed:          int   = 1123581321
+    min_qual:      int   = 0
+    max_qual:      int   = 40
 
 def degrade_chunk(
     chunk: Iterable[FastqRecord],
@@ -86,39 +119,52 @@ def process_streaming(
     then concatenated at the raw gzip byte level — no decompress/recompress round-trip.
     The sliding window in run_parallel keeps at most n_workers chunks in memory at once.
     """
-    working_dir = temp_dir or tempfile.mkdtemp(prefix="degrade_")
-    owned = temp_dir is None  # only clean up dirs we created
+    with tempfile.TemporaryDirectory(dir = temp_dir) as tmp:
 
-    try:
         worker = functools.partial(
-            degrade_and_write_chunk, params=params, temp_dir=working_dir
+            degrade_and_write_chunk, params=params, temp_dir=tmp
         )
-        temp_paths = list(
-            run_parallel(input_path, worker, chunk_size=chunk_size, n_workers=n_workers)
-        )
-        logger.info("concatenating %d chunks → %s", len(temp_paths), output_path)
+        try:
+            temp_paths = list(
+                run_parallel(input_path, worker, chunk_size=chunk_size, n_workers=n_workers)
+            )
+        except Exception:
+            logger.exception("parallel degradation failed for %s", input_path)
+            raise
+
+        logger.info("Finished: concatenating %d chunks → %s", len(temp_paths), output_path)
         with open(output_path, 'wb') as fout:
             for path in temp_paths:
                 with open(path, 'rb') as fin:
                     shutil.copyfileobj(fin, fout)
-    finally:
-        if owned:
-            shutil.rmtree(working_dir)
+
 
 
 def main():
+
+    MEM_PER_THREAD_MB = 50
+    N_WORKERS = 6
+
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     basedir = os.path.dirname(os.path.abspath(__file__))
     R1 = f"{basedir}/sample_data/2629LEI-2_S2_L001_R1_001.fastq.gz"
     R2 = f"{basedir}/sample_data/2629LEI-2_S2_L001_R2_001.fastq.gz"
+
+    # degradation params
+    degrade = DegradeParams()
+
+    tmpdir = os.getenv('TMP') or os.getenv('TMPDIR') or '/tmp'
     for R in [R1, R2]:
         read_dim = get_read_dimensions(R)
         if read_dim is None:
             raise ValueError(f"could not read any records from {R}")
         read_len, bytes_per_read, mem_per_read = read_dim
-        chunksize = calculate_chunk_size(mem_per_read)
+        chunksize = calculate_chunk_size(mem_per_read, mem_per_thread_mb=MEM_PER_THREAD_MB)
         print(f"{R=}\n{read_len=}, {bytes_per_read=}, {mem_per_read=} {chunksize=}")
+        outpath = R.removesuffix('.fastq.gz') + '_degrade.fastq.gz'
+        process_streaming(R, outpath, degrade, chunk_size=chunksize, n_workers= N_WORKERS, temp_dir=tmpdir)
 
+    print(f"{MEM_PER_THREAD_MB=}, {N_WORKERS=}")
 
 if __name__ == "__main__":
     main()

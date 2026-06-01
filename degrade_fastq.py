@@ -7,8 +7,8 @@ import shutil
 import tempfile
 import numpy as np
 from dataclasses import dataclass
-from typing import Iterable, Iterator
-
+from typing import Iterable, Iterator, Callable, TypeVar
+from concurrent.futures import Executor, ThreadPoolExecutor, ProcessPoolExecutor
 from fastq_chunk import FastqRecord, get_read_dimensions, calculate_chunk_size, run_parallel
 
 logger = logging.getLogger(__name__)
@@ -112,6 +112,7 @@ def process_streaming(
     chunk_size: int,
     n_workers: int = 4,
     temp_dir: str | None = None,
+    executor_class: Callable[..., Executor] = ThreadPoolExecutor
 ) -> None:
     """Degrade quality scores across the full file using parallel chunk workers.
 
@@ -126,7 +127,7 @@ def process_streaming(
         )
         try:
             temp_paths = list(
-                run_parallel(input_path, worker, chunk_size=chunk_size, n_workers=n_workers)
+                run_parallel(input_path, worker, chunk_size=chunk_size, n_workers=n_workers, executor_class=executor_class)
             )
         except Exception:
             logger.exception("parallel degradation failed for %s", input_path)
@@ -162,7 +163,9 @@ def main():
         chunksize = calculate_chunk_size(mem_per_read, mem_per_thread_mb=MEM_PER_THREAD_MB)
         print(f"{R=}\n{read_len=}, {bytes_per_read=}, {mem_per_read=} {chunksize=}")
         outpath = R.removesuffix('.fastq.gz') + '_degrade.fastq.gz'
-        process_streaming(R, outpath, degrade, chunk_size=chunksize, n_workers= N_WORKERS, temp_dir=tmpdir)
+
+        # launch it
+        process_streaming(R, outpath, degrade, chunk_size=chunksize, n_workers= N_WORKERS, temp_dir=tmpdir,executor_class=ProcessPoolExecutor)
 
     print(f"{MEM_PER_THREAD_MB=}, {N_WORKERS=}")
 

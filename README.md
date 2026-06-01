@@ -20,3 +20,16 @@ This will list the location of the installed module, or give an error if install
 python -c "import fastq_chunk; print(fastq_chunk.__file__)"
 ```
 
+### pip (without conda environment)
+
+```
+pip install -r requirements.txt
+```
+
+#### test fastq\_chunk module import
+
+This will list the location of the installed module, or give an error if installation failed.
+
+```
+python -c "import fastq_chunk; print(fastq_chunk.__file__)"
+```

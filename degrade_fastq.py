@@ -5,10 +5,12 @@ import os
 import gzip
 import shutil
 import tempfile
+import pandas as pd
 import numpy as np
+import numpy.typing as npt
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable, Iterator, Callable, TypeVar
+from typing import Iterable, Iterator, Callable, Tuple
 from concurrent.futures import Executor, ThreadPoolExecutor, ProcessPoolExecutor
 from fastq_chunk import FastqRecord, get_read_dimensions, calculate_chunk_size, run_parallel
 
@@ -64,12 +66,13 @@ att = ['tail_start','tail_slope', 'global_noise', 'dropout_rate', 'dropout_floor
 def degrade_obj_to_str(obj):
     msg = []
     for atty in att: msg.append(f"{atty}={obj.__getattribute__(atty)}")
-    return "\n".join(msg)
+    return "; ".join(msg)
 
 def degrade_chunk(
     chunk: Iterable[FastqRecord],
     params: DegradeParams,
     rng: np.random.Generator,
+    hist: npt.NDArray[np.uint64] | None = None
 ) -> Iterator[FastqRecord]:
     """Apply random noise to quality scores for each record in chunk."""
     for rec in chunk:
@@ -85,11 +88,28 @@ def degrade_chunk(
         dropout_mask = rng.random(read_len) < params.dropout_rate
         dropout_vals = rng.uniform(params.dropout_floor, params.dropout_floor + 5, read_len)
         quals = np.where(dropout_mask, np.minimum(quals, dropout_vals), quals)
-
         quals = np.clip(np.round(quals), params.min_qual, params.max_qual).astype(int)
+
+        if hist is not None:
+            for pos, q in enumerate(quals):
+                hist[pos,q] += 1
+
         rec.qualities = ''.join(chr(q + 33) for q in quals)
         yield rec
 
+# 2%, 9%, 25%, 50%, 75%, 91%, 98%
+def quantiles_from_hist(hist, q=[.02, .09, 0.25, 0.5, 0.75, .91, .98]):
+    """hist shape (read_len, max_qual+1)"""
+    result = np.zeros((hist.shape[0], len(q)))
+    for pos in range(hist.shape[0]):
+        cum = np.cumsum(hist[pos])
+        total = cum[-1]
+        if total == 0:
+            result[pos] = np.nan
+            continue
+        quantile_indices = np.array(q) * total
+        result[pos] = np.searchsorted(cum, quantile_indices)
+    return result
 
 def degrade_and_write_chunk(
     chunk: list[FastqRecord],
@@ -97,7 +117,7 @@ def degrade_and_write_chunk(
     *,
     params: DegradeParams,
     temp_dir: str,
-) -> str:
+) -> Tuple[str, npt.NDArray[np.uint64]]:
     """Degrade quality scores in chunk and write to a numbered temp file.
 
     params and temp_dir are keyword-only so functools.partial can bind them,
@@ -105,10 +125,13 @@ def degrade_and_write_chunk(
     """
     rng = np.random.default_rng(params.seed + chunk_idx)
     temp_path = os.path.join(temp_dir, f"chunk_{chunk_idx:06d}.fastq.gz")
+    
     with gzip.open(temp_path, 'wt') as fout:
-        for rec in degrade_chunk(chunk, params, rng):
+        read_len = len(chunk[0].sequence)
+        hist = np.zeros((read_len, params.max_qual+1), dtype=np.uint64)
+        for rec in degrade_chunk(chunk, params, rng, hist):
             fout.write(f"@{rec.name}\n{rec.sequence}\n+\n{rec.qualities}\n")
-    return temp_path
+    return temp_path, hist
 
 
 def process_streaming(
@@ -120,7 +143,7 @@ def process_streaming(
     n_workers: int = 4,
     temp_dir: str | None = None,
     executor_class: Callable[..., Executor] = ThreadPoolExecutor
-) -> None:
+) -> npt.NDArray[np.float64]:
     """Degrade quality scores across the full file using parallel chunk workers.
 
     Chunks are written to temp files on node-local storage (respects $TMPDIR),
@@ -133,20 +156,38 @@ def process_streaming(
             degrade_and_write_chunk, params=params, temp_dir=tmp
         )
         try:
-            temp_paths = list(
+            results = list(
                 run_parallel(input_path, worker, chunk_size=chunk_size, n_workers=n_workers, executor_class=executor_class)
             )
         except Exception:
             logger.exception("parallel degradation failed for %s", input_path)
             raise
 
-        logger.info("Finished: concatenating %d chunks → %s", len(temp_paths), output_path)
+        temp_paths, hists = zip(*results)
+
+        # concatenate degraded fastq.gzs
         with open(output_path, 'wb') as fout:
             for path in temp_paths:
                 with open(path, 'rb') as fin:
                     shutil.copyfileobj(fin, fout)
 
+            logger.info("Finished: concatenating %d chunks → %s", len(temp_paths), output_path)
 
+        total_hist = np.sum(hists, axis=0)
+        quantiles = quantiles_from_hist(total_hist)
+
+        return quantiles
+
+def print_seven_number_summary(quantiles, outcsv):  
+    df = pd.DataFrame(quantiles.T, index=pd.Index(['2%', '9%', 
+'25%', '50%', '75%', '91%', '98%']))
+
+    df.loc['count'] = 10000
+    df = df.reindex(['count'] + list(df.index[:-1]))
+    if isinstance(df.columns, pd.RangeIndex):
+        df.columns = pd.RangeIndex(df.columns) + 1 # RangeIndex originally starts at 0 with my histogram
+    
+    df.to_csv(outcsv, sep="\t", mode="a")
 
 def main():
 
@@ -159,7 +200,10 @@ def main():
     R2 = f"{basedir}/sample_data/2629LEI-2_S2_L001_R2_001.fastq.gz"
 
 
-    logname = datetime.now().strftime("degrade-log.%d-%M-%Y:%H:%m:%S.txt")
+    #logname = datetime.now().strftime("degrade-log.%d-%M-%Y:%H:%m:%S.txt")
+    jun_1 = int(datetime(2026,6,1).strftime("%s"))
+    timestamp = int(datetime.now().strftime("%s")) % jun_1
+    logname = f"degrade-{timestamp}.log"
     # degradation params
     degrade = DegradeParams()
 
@@ -176,9 +220,11 @@ def main():
             print(f"{R=}\n{read_len=}, {bytes_per_read=}, {mem_per_read=} {chunksize=}")
             outpath = R.removesuffix('.fastq.gz') + '_degrade.fastq.gz'
 
-            # launch it
-            process_streaming(R, outpath, degrade, chunk_size=chunksize, n_workers= N_WORKERS, temp_dir=tmpdir,executor_class=ProcessPoolExecutor)
-
+            # run it
+            quantiles = process_streaming(R, outpath, degrade, chunk_size=chunksize, n_workers= N_WORKERS, temp_dir=tmpdir,executor_class=ProcessPoolExecutor)
+            tsv_file = outpath.replace('.fastq.gz', '.seven-number-summaries.tsv')
+            with open(tsv_file, 'w') as tsv: print(f'#{degrade_obj_to_str(degrade)}', file=tsv)
+            print_seven_number_summary(quantiles, tsv_file)
             # save info
             print(outpath, file=log)
 

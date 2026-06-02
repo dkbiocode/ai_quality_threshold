@@ -7,6 +7,7 @@ import shutil
 import tempfile
 import numpy as np
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Iterable, Iterator, Callable, TypeVar
 from concurrent.futures import Executor, ThreadPoolExecutor, ProcessPoolExecutor
 from fastq_chunk import FastqRecord, get_read_dimensions, calculate_chunk_size, run_parallel
@@ -58,6 +59,12 @@ class DegradeParams:
     seed:          int   = 1123581321
     min_qual:      int   = 0
     max_qual:      int   = 40
+
+att = ['tail_start','tail_slope', 'global_noise', 'dropout_rate', 'dropout_floor', 'seed','min_qual','max_qual']
+def degrade_obj_to_str(obj):
+    msg = []
+    for atty in att: msg.append(f"{atty}={obj.__getattribute__(atty)}")
+    return "\n".join(msg)
 
 def degrade_chunk(
     chunk: Iterable[FastqRecord],
@@ -151,21 +158,29 @@ def main():
     R1 = f"{basedir}/sample_data/2629LEI-2_S2_L001_R1_001.fastq.gz"
     R2 = f"{basedir}/sample_data/2629LEI-2_S2_L001_R2_001.fastq.gz"
 
+
+    logname = datetime.now().strftime("degrade-log.%d-%M-%Y:%H:%m:%S.txt")
     # degradation params
     degrade = DegradeParams()
 
     tmpdir = os.getenv('TMP') or os.getenv('TMPDIR') or '/tmp'
-    for R in [R1, R2]:
-        read_dim = get_read_dimensions(R)
-        if read_dim is None:
-            raise ValueError(f"could not read any records from {R}")
-        read_len, bytes_per_read, mem_per_read = read_dim
-        chunksize = calculate_chunk_size(mem_per_read, mem_per_thread_mb=MEM_PER_THREAD_MB)
-        print(f"{R=}\n{read_len=}, {bytes_per_read=}, {mem_per_read=} {chunksize=}")
-        outpath = R.removesuffix('.fastq.gz') + '_degrade.fastq.gz'
+    with open(logname, "w") as log:
+        print(degrade_obj_to_str(degrade), file=log)
 
-        # launch it
-        process_streaming(R, outpath, degrade, chunk_size=chunksize, n_workers= N_WORKERS, temp_dir=tmpdir,executor_class=ProcessPoolExecutor)
+        for R in [R1, R2]:
+            read_dim = get_read_dimensions(R)
+            if read_dim is None:
+                raise ValueError(f"could not read any records from {R}")
+            read_len, bytes_per_read, mem_per_read = read_dim
+            chunksize = calculate_chunk_size(mem_per_read, mem_per_thread_mb=MEM_PER_THREAD_MB)
+            print(f"{R=}\n{read_len=}, {bytes_per_read=}, {mem_per_read=} {chunksize=}")
+            outpath = R.removesuffix('.fastq.gz') + '_degrade.fastq.gz'
+
+            # launch it
+            process_streaming(R, outpath, degrade, chunk_size=chunksize, n_workers= N_WORKERS, temp_dir=tmpdir,executor_class=ProcessPoolExecutor)
+
+            # save info
+            print(outpath, file=log)
 
     print(f"{MEM_PER_THREAD_MB=}, {N_WORKERS=}")
 

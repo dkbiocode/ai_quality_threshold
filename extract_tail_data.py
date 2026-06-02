@@ -9,10 +9,8 @@ from openai import OpenAI
 # Initialize OpenAI client
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 model = "gpt-4o-mini"
-
-demux_file = sys.argv[1] # path to a demux_summary.qzv
-
 amplicon_length = 0
+endsize = 20
 
 def summarize_tail(tsv_data, last_n=50):
     reader = csv.reader(io.StringIO(tsv_data), delimiter='\t')
@@ -27,16 +25,31 @@ def summarize_tail(tsv_data, last_n=50):
         writer.writerow([row[0]] + row[-last_n:])
     return out.getvalue()
 
-endsize = 20
 
-with zipfile.ZipFile(demux_file, 'r') as z:
-    for name in z.namelist():
-        if name.endswith('forward-seven-number-summaries.tsv'):
-            with z.open(name) as f:
-                fwd_data = summarize_tail( f.read().decode('utf-8').replace('\r', ''), endsize )
-        elif name.endswith('reverse-seven-number-summaries.tsv'):
-            with z.open(name) as f:
-                rev_data = summarize_tail( f.read().decode('utf-8').replace('\r', ''), endsize )
+demux_file = ""
+if len(sys.argv) == 1:
+    demux_file = "demux_summary.qzv"
+elif len(sys.argv) == 2:
+    demux_file = sys.argv[1]
+elif len(sys.argv) == 3:
+    with open(sys.argv[1]) as f_tsv:
+        fwd_data = summarize_tail( f_tsv.read(), endsize)
+    with open(sys.argv[2]) as r_tsv:
+        rev_data = summarize_tail( r_tsv.read(), endsize)
+
+if demux_file: 
+    with zipfile.ZipFile(demux_file, 'r') as z:
+        for name in z.namelist():
+            if name.endswith('forward-seven-number-summaries.tsv'):
+                with z.open(name) as f:
+                    fwd_data = summarize_tail( f.read().decode('utf-8').replace('\r', ''), endsize )
+            elif name.endswith('reverse-seven-number-summaries.tsv'):
+                with z.open(name) as f:
+                    rev_data = summarize_tail( f.read().decode('utf-8').replace('\r', ''), endsize )
+
+
+
+
 
 
 prompt = f"""You are analyzing quality scores from 16S amplicon sequencing data 
@@ -84,3 +97,6 @@ result = json.loads(str(response.choices[0].message.content))
 #result["original_data"] = data
 
 print(result)
+print(f"{result['trunc_len_f']=}")
+print(f"{result['trunc_len_r']=}")
+print(f"{result['reasoning']=}")

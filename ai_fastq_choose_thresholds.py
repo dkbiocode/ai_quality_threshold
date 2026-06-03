@@ -404,11 +404,15 @@ def main(argv: Sequence[str]) -> int:
     plot_path = build_plot(fwd_summary, rev_summary, plot_len_f, plot_len_r, result['reasoning'],
                            fwd_window_start=int(fwd_cols[0]), rev_window_start=int(rev_cols[0]))
 
-    print(result)
-    print(f"{result['trunc_len_f']=}")
-    print(f"{result['trunc_len_r']=}")
-    print(f"{result['reasoning']=}")
+    json_path = plot_path.replace('.png', '.json')
+    with open(json_path, 'w') as f:
+        json.dump(result, f, indent=2)
+
+    print(f"trunc_len_f: {result['trunc_len_f']}")
+    print(f"trunc_len_r: {result['trunc_len_r']}")
+    print(f"reasoning: {result['reasoning']}")
     print(f'Plot written to {plot_path}')
+    print(f'Result written to {json_path}')
     return 0
 
 

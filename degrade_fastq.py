@@ -5,7 +5,6 @@ import os
 import gzip
 import shutil
 import tempfile
-import pandas as pd
 import numpy as np
 import numpy.typing as npt
 from dataclasses import dataclass
@@ -13,6 +12,7 @@ from datetime import datetime
 from typing import Iterable, Iterator, Callable, Tuple
 from concurrent.futures import Executor, ThreadPoolExecutor, ProcessPoolExecutor
 from fastq_chunk import FastqRecord, get_read_dimensions, calculate_chunk_size, run_parallel
+from quality_summary import quantiles_from_hist, print_seven_number_summary
 
 logger = logging.getLogger(__name__)
 
@@ -97,19 +97,6 @@ def degrade_chunk(
         rec.qualities = ''.join(chr(q + 33) for q in quals)
         yield rec
 
-# 2%, 9%, 25%, 50%, 75%, 91%, 98%
-def quantiles_from_hist(hist, q=[.02, .09, 0.25, 0.5, 0.75, .91, .98]):
-    """hist shape (read_len, max_qual+1)"""
-    result = np.zeros((hist.shape[0], len(q)))
-    for pos in range(hist.shape[0]):
-        cum = np.cumsum(hist[pos])
-        total = cum[-1]
-        if total == 0:
-            result[pos] = np.nan
-            continue
-        quantile_indices = np.array(q) * total
-        result[pos] = np.searchsorted(cum, quantile_indices)
-    return result
 
 def degrade_and_write_chunk(
     chunk: list[FastqRecord],
@@ -174,20 +161,11 @@ def process_streaming(
             logger.info("Finished: concatenating %d chunks → %s", len(temp_paths), output_path)
 
         total_hist = np.sum(hists, axis=0)
+        total_reads = int(total_hist[0].sum())
         quantiles = quantiles_from_hist(total_hist)
 
-        return quantiles
+        return quantiles, total_reads
 
-def print_seven_number_summary(quantiles, outcsv):  
-    df = pd.DataFrame(quantiles.T, index=pd.Index(['2%', '9%', 
-'25%', '50%', '75%', '91%', '98%']))
-
-    df.loc['count'] = 10000
-    df = df.reindex(['count'] + list(df.index[:-1]))
-    if isinstance(df.columns, pd.RangeIndex):
-        df.columns = pd.RangeIndex(df.columns) + 1 # RangeIndex originally starts at 0 with my histogram
-    
-    df.to_csv(outcsv, sep="\t", mode="a")
 
 def main():
 
@@ -196,8 +174,8 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     basedir = os.path.dirname(os.path.abspath(__file__))
-    R1 = f"{basedir}/sample_data/2629LEI-2_S2_L001_R1_001.fastq.gz"
-    R2 = f"{basedir}/sample_data/2629LEI-2_S2_L001_R2_001.fastq.gz"
+    R1 = f"{basedir}/sample_data/sample_S2_L001_R1_001.fastq.gz"
+    R2 = f"{basedir}/sample_data/sample_S2_L001_R2_001.fastq.gz"
 
 
     #logname = datetime.now().strftime("degrade-log.%d-%M-%Y:%H:%m:%S.txt")
@@ -221,10 +199,10 @@ def main():
             outpath = R.removesuffix('.fastq.gz') + '_degrade.fastq.gz'
 
             # run it
-            quantiles = process_streaming(R, outpath, degrade, chunk_size=chunksize, n_workers= N_WORKERS, temp_dir=tmpdir,executor_class=ProcessPoolExecutor)
+            quantiles, total_reads = process_streaming(R, outpath, degrade, chunk_size=chunksize, n_workers= N_WORKERS, temp_dir=tmpdir,executor_class=ProcessPoolExecutor)
             tsv_file = outpath.replace('.fastq.gz', '.seven-number-summaries.tsv')
             with open(tsv_file, 'w') as tsv: print(f'#{degrade_obj_to_str(degrade)}', file=tsv)
-            print_seven_number_summary(quantiles, tsv_file)
+            print_seven_number_summary(quantiles, tsv_file, total_reads=total_reads)
             # save info
             print(outpath, file=log)
 

@@ -6,15 +6,8 @@ import os
 import sys
 import zipfile
 from typing import Sequence, TypedDict, Optional
-
-try:
-    import matplotlib.pyplot as plt
-    from matplotlib.ticker import MultipleLocator, MaxNLocator, FuncFormatter
-except ImportError as exc:
-    raise SystemExit(
-        'matplotlib is required to run this script. Install it with `pip install matplotlib`.'
-    ) from exc
-
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator, MaxNLocator, FuncFormatter
 import numpy as np
 import pandas as pd
 from openai import OpenAI

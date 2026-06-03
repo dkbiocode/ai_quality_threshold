@@ -280,6 +280,49 @@ def build_prompt(fwd_summary: Summary, rev_summary: Summary, fwd_cols: list, rev
     {{"trunc_len_f": N, "trunc_len_r": N, "reasoning": "..."}}"""
 
 
+def build_overlap_prompt(
+    fwd_summary: Summary,
+    rev_summary: Summary,
+    fwd_cols: list,
+    rev_cols: list,
+    initial_trunc_f: int,
+    initial_trunc_r: int,
+) -> str:
+    """Secondary prompt (amplicon length known): refine allocation using trend and overlap budget."""
+    fwd_tail = extract_tail_from_summary(fwd_summary, fwd_cols)
+    rev_tail = extract_tail_from_summary(rev_summary, rev_cols)
+    current_overlap = initial_trunc_f + initial_trunc_r - amplicon_length
+    min_sum = amplicon_length + 20
+
+    return f"""You are refining DADA2 truncation parameters for 16S amplicon sequencing data.
+
+    A threshold-based analysis produced an initial suggestion:
+      trunc_len_f = {initial_trunc_f}, trunc_len_r = {initial_trunc_r}
+      overlap margin = {current_overlap} bp (amplicon {amplicon_length} bp, minimum overlap 20 bp)
+      constraint: trunc_len_f + trunc_len_r >= {min_sum}
+
+    Quality data (25th percentile and median) around the transition zone:
+
+    Forward reads (positions {int(fwd_cols[0])}–{int(fwd_cols[-1])}):
+    {fwd_tail}
+
+    Reverse reads (positions {int(rev_cols[0])}–{int(rev_cols[-1])}):
+    {rev_tail}
+
+    Answer two questions to refine the suggestion:
+
+    1. Trend: Is quality declining steadily in the positions approaching each cutoff,
+       or stable right up to it? If declining, truncate a few bases earlier to avoid
+       including degrading data. If stable, the initial value is appropriate.
+
+    2. Overlap allocation: trunc_len_f + trunc_len_r must be >= {min_sum}.
+       If one read has more stable quality headroom than the other, shift the budget
+       toward the read under more pressure. Maximise overall quality within the constraint.
+
+    Respond ONLY with valid JSON, no markdown formatting:
+    {{"trunc_len_f": N, "trunc_len_r": N, "reasoning": "..."}}"""
+
+
 def check_suggestion(summary: Summary, trunc_len: int, label: str) -> bool:
     df = summary['df']
     positions = np.array(df.columns, dtype=int)
@@ -345,6 +388,21 @@ def main(argv: Sequence[str]) -> int:
     result = json.loads(str(response.choices[0].message.content))
     trunc_len_f = int(result['trunc_len_f'])
     trunc_len_r = int(result['trunc_len_r'])
+
+    if amplicon_length > 0:
+        overlap_prompt = build_overlap_prompt(
+            fwd_summary, rev_summary, fwd_cols, rev_cols, trunc_len_f, trunc_len_r
+        )
+        overlap_response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": overlap_prompt}],
+            response_format={"type": "json_object"},
+            temperature=0.3,
+        )
+        result = json.loads(str(overlap_response.choices[0].message.content))
+        trunc_len_f = int(result['trunc_len_f'])
+        trunc_len_r = int(result['trunc_len_r'])
+
     check_suggestion(fwd_summary, trunc_len_f, 'forward')
     check_suggestion(rev_summary, trunc_len_r, 'reverse')
     plot_len_f = plot_trunc_len_f if plot_trunc_len_f is not None else trunc_len_f

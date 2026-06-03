@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
+import os, json
 from openai import OpenAI
  
 # Initialize OpenAI client
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 PROMPT = """
-Right a prompt here and fill in data using .format. For example, if you want to interpolate data into a prompt with a variable called "data".
+Write a prompt here and fill in data using .format. For example, if you want to interpolate data into a prompt with a variable called "data".
 use 
 
 prompt = PROMPT.format(data=data)

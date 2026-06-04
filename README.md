@@ -59,6 +59,21 @@ qiime dada2 denoise-paired \
     ...
 ```
 
+### Not using Qiime2? Create the quantile files manually
+
+```bash
+# summarize multiple read files of forward (R1) and reverse (R2)
+util/fastq_to_seven_number_summary.py --combine -o forward-seven-number-summaries.tsv *_R1_*.fastq.gz
+util/fastq_to_seven_number_summary.py --combine -o reverse-seven-number-summaries.tsv *_R2_*.fastq.gz
+
+# then create the estimated parameters
+python ai_fastq_choose_thresholds.py forward-seven-number-summaries.tsv reverse-seven-number-summaries.tsv
+
+# extract from json file
+trunc_f=$(jq .trunc_len_f ai_quality_threshold_plot.json)
+trunc_r=$(jq .trunc_len_r ai_quality_threshold_plot.json)
+```
+
 ## Installation:
 
 ### API credentials

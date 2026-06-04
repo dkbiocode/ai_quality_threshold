@@ -78,7 +78,7 @@ trunc_r=$(jq .trunc_len_r ai_quality_threshold_plot.json)
 
 ### API credentials
 
-This script uses OpenAI (yeah, I know). Go to OpenAI and get an API key. This has to be in your environment for the script to make its prompt to the model.
+This script uses OpenAI (yeah, *I know*). Go to OpenAI and get an API key. This has to be in your environment for the script to make its prompt to the model.
 
 Example .bashrc/.zshrc:
 
@@ -86,7 +86,7 @@ Example .bashrc/.zshrc:
 export OPENAI_API_KEY='sk-Y5lj...'
 ```
 
-Relevant lines in python:
+Relevant lines in python don't need to be changed if OPENAI_API_KEY is exported:
 
 ```python
 import os # to read from user ENV

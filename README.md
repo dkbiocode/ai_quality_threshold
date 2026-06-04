@@ -28,6 +28,37 @@ python ai_fastq_choose_thresholds.py demux_summary.qzv
 python ai_fastq_choose_thresholds.py forward-seven-number-summaries.tsv reverse-seven-number-summaries.tsv
 ```
 
+### Output
+
+* json file with values and reasoning
+* plot of qualities
+
+#### JSON output
+
+ai_quality_threshold_plot.json:
+
+```json
+{
+  "trunc_len_f": 240,
+  "trunc_len_r": 240,
+  "reasoning": "The forward reads maintain a quality score above 25 (25th percentile) until position 240, while the reverse reads show a significant drop in quality starting at position 240. To ensure high-quality reads and sufficient overlap for merging, truncation is recommended at 240 for both forward and reverse reads. This truncation maintains a conservative approach given the unknown amplicon length."
+}
+```
+
+Extracting values in code 
+
+```sh
+python ai_fastq_choose_thresholds.py demux_summary.qzv # creates ai_quality_threshold_plot.json
+trunc_f=$(jq .trunc_len_f ai_quality_threshold_plot.json)
+trunc_r=$(jq .trunc_len_r ai_quality_threshold_plot.json)
+
+qiime dada2 denoise-paired \
+    --i-demultiplexed-seqs ${input_qza} \
+    --p-trunc-len-r $trunc_r \
+    --p-trunc-len-f $trunc_f \
+    ...
+```
+
 ## Installation:
 
 ### API credentials

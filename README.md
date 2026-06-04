@@ -100,7 +100,7 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 #### install environment
 
-This also installs fastq\_chunk from dkbiocode.
+This also installs fastq\_chunk from PyPI.
 
 ```
 conda env create -f environment.yml

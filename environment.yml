@@ -11,5 +11,5 @@ dependencies:
   - pandas
   - matplotlib
   - pip:
-    - git+https://github.com/dkbiocode/fastq-chunk.git@v0.1.0
+    - fastq-chunk==0.1.0
 

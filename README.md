@@ -4,7 +4,7 @@ Use an LLM to automatically suggest trimming thresholds based on quality criteri
 
 <a href="img/ai_quality_threshold_plot_good.png"><img src="img/ai_quality_threshold_plot_good.png" width=500px></a><a href="img/ai_quality_threshold_plot_degrade_global_2.png"><img src="img/ai_quality_threshold_plot_degrade_global_2.png" width=500px></a>
 
-A good set of paired fastq reads *left* and a degraded set *right*. The red area shows the AI recommended trim. Click on the image to see more detail, including the AI generated rationale below the plots.
+A good set of paired fastq reads *top* and a degraded set *bottom*. The red area shows the AI recommended trim. Click on the image to see more detail, including the AI generated rationale below the plots.
 
 ### Description
 

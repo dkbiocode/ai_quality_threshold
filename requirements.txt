@@ -1,2 +1,2 @@
-fastq-chunk @ git+https://github.com/dkbiocode/fastq-chunk.git
+fastq-chunk @ git+https://github.com/dkbiocode/fastq-chunk.git@v0.1.0
 numpy

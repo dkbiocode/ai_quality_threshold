@@ -407,6 +407,17 @@ def main(argv: Sequence[str]) -> int:
         rev_cols = compute_window_cols(rev_summary)
     except ValueError as e:
         print(f'ERROR: {e}', file=sys.stderr)
+        fail_result = {
+            'pass_fail': 'fail',
+            'trim_left_f': None,
+            'trim_left_r': None,
+            'trunc_len_f': None,
+            'trunc_len_r': None,
+            'reasoning': None,
+        }
+        with open('ai_quality_threshold_plot.json', 'w') as f:
+            json.dump(fail_result, f, indent=2)
+        print('Result written to ai_quality_threshold_plot.json')
         return 1
 
     prompt = build_prompt(fwd_summary, rev_summary, fwd_cols, rev_cols)
@@ -438,6 +449,7 @@ def main(argv: Sequence[str]) -> int:
     check_suggestion(fwd_summary, trunc_len_f, 'forward')
     check_suggestion(rev_summary, trunc_len_r, 'reverse')
 
+    result['pass_fail'] = 'pass'
     result['trim_left_f'] = trim_left_f
     result['trim_left_r'] = trim_left_r
 

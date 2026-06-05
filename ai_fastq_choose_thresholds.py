@@ -78,13 +78,17 @@ def plot_quality_summary(
     window_start: Optional[int] = None,
     q25_threshold: float = 0,
     q50_threshold: float = 0,
+    trim_left: int = 0,
 ) -> None:
     df: pd.DataFrame = summary['df']
     positions = np.array(df.columns, dtype=int)
     box_bottom = df.loc['25%'].to_numpy()
     box_top = df.loc['75%'].to_numpy()
     box_height = box_top - box_bottom
-    bar_colors = [trim_color if pos > trunc_len else base_color for pos in positions]
+    bar_colors = [
+        trim_color if pos > trunc_len or (trim_left > 0 and pos <= trim_left) else base_color
+        for pos in positions
+    ]
 
     axes.bar(
         positions,
@@ -105,7 +109,9 @@ def plot_quality_summary(
         axes.vlines(pos, q9[i],  q91[i], color='black', alpha=0.5,  linewidth=1.0)
 
     axes.plot(positions, df.loc['50%'].to_numpy(), color='black', linewidth=1.4, label='Median (50%)')
-    axes.axvline(trunc_len, color='red', linestyle='--', linewidth=1.2, label=f'trim at {trunc_len}')
+    axes.axvline(trunc_len, color='red', linestyle='--', linewidth=1.2, label=f"3' trunc at {trunc_len}")
+    if trim_left > 0:
+        axes.axvline(trim_left + 0.5, color='darkorange', linestyle='--', linewidth=1.2, label=f"5' trim at {trim_left}")
     if window_start is not None:
         axes.axvline(window_start, color='orange', linestyle=':', linewidth=4.0, label=f'analysis window (pos {window_start})')
     if q25_threshold > 0:
@@ -131,6 +137,8 @@ def build_plot(
     reasoning: str,
     fwd_window_start: Optional[int] = None,
     rev_window_start: Optional[int] = None,
+    trim_left_f: int = 0,
+    trim_left_r: int = 0,
 ) -> str:
     fig, axes = plt.subplots(2, 1, figsize=(16, 10), sharex=False)
     plot_quality_summary(
@@ -143,6 +151,7 @@ def build_plot(
         window_start=fwd_window_start,
         q25_threshold=min_q_25p,
         q50_threshold=min_q_50p,
+        trim_left=trim_left_f,
     )
     plot_quality_summary(
         axes[1],
@@ -154,6 +163,7 @@ def build_plot(
         window_start=rev_window_start,
         q25_threshold=min_q_25p,
         q50_threshold=min_q_50p,
+        trim_left=trim_left_r,
     )
 
     fig.text(0.5, 0.01, reasoning, ha='center', va='bottom', fontsize=10, wrap=True, family='monospace')
@@ -316,6 +326,32 @@ def build_overlap_prompt(
     {{"trunc_len_f": N, "trunc_len_r": N, "reasoning": "..."}}"""
 
 
+def compute_trim_left(
+    summary: Summary,
+    ref_pos: int = 20,
+    within: float = 2.0,
+    drop_tol: float = 3.0,
+    run: int = 5,
+) -> int:
+    """Return the number of 5' bases to trim using a plateau-detection heuristic.
+
+    Scans the median quality from left to right and returns the first index i
+    where quality is within `within` Phred of the plateau (position ref_pos) AND
+    the next `run` positions all stay above plateau - drop_tol.  Returns 0 if
+    quality is already at plateau from the first position, or if the data is too
+    short to apply the heuristic.
+    """
+    median = summary['df'].loc['50%'].to_numpy()
+    if len(median) < ref_pos + run:
+        return 0
+    plateau = float(median[ref_pos - 1])
+    for i in range(len(median) - run):
+        if abs(float(median[i]) - plateau) <= within:
+            if all(float(median[i + j]) >= plateau - drop_tol for j in range(run)):
+                return i
+    return 0
+
+
 def check_suggestion(summary: Summary, trunc_len: int, label: str) -> bool:
     df = summary['df']
     positions = np.array(df.columns, dtype=int)
@@ -363,6 +399,9 @@ def main(argv: Sequence[str]) -> int:
     fwd_summary = parse_summary_tsv(fwd_data)
     rev_summary = parse_summary_tsv(rev_data)
 
+    trim_left_f = compute_trim_left(fwd_summary)
+    trim_left_r = compute_trim_left(rev_summary)
+
     try:
         fwd_cols = compute_window_cols(fwd_summary)
         rev_cols = compute_window_cols(rev_summary)
@@ -398,16 +437,23 @@ def main(argv: Sequence[str]) -> int:
 
     check_suggestion(fwd_summary, trunc_len_f, 'forward')
     check_suggestion(rev_summary, trunc_len_r, 'reverse')
+
+    result['trim_left_f'] = trim_left_f
+    result['trim_left_r'] = trim_left_r
+
     plot_len_f = plot_trunc_len_f if plot_trunc_len_f is not None else trunc_len_f
     plot_len_r = plot_trunc_len_r if plot_trunc_len_r is not None else trunc_len_r
 
     plot_path = build_plot(fwd_summary, rev_summary, plot_len_f, plot_len_r, result['reasoning'],
-                           fwd_window_start=int(fwd_cols[0]), rev_window_start=int(rev_cols[0]))
+                           fwd_window_start=int(fwd_cols[0]), rev_window_start=int(rev_cols[0]),
+                           trim_left_f=trim_left_f, trim_left_r=trim_left_r)
 
     json_path = plot_path.replace('.png', '.json')
     with open(json_path, 'w') as f:
         json.dump(result, f, indent=2)
 
+    print(f"trim_left_f: {trim_left_f}")
+    print(f"trim_left_r: {trim_left_r}")
     print(f"trunc_len_f: {result['trunc_len_f']}")
     print(f"trunc_len_r: {result['trunc_len_r']}")
     print(f"reasoning: {result['reasoning']}")

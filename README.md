@@ -67,18 +67,26 @@ Extracting values in code
 
 ```sh
 python ai_fastq_choose_thresholds.py demux_summary.qzv # creates ai_quality_threshold_plot.json
+pass_fail=$(jq .pass_fail ai_quality_threshold_plot.json | tr -d '"')
 trim_f=$(jq .trim_left_f ai_quality_threshold_plot.json)
 trim_r=$(jq .trim_left_r ai_quality_threshold_plot.json)
 trunc_f=$(jq .trunc_len_f ai_quality_threshold_plot.json)
 trunc_r=$(jq .trunc_len_r ai_quality_threshold_plot.json)
 
-qiime dada2 denoise-paired \
-    --i-demultiplexed-seqs ${input_qza} \
-    --p-trim-left-f $trim_f \
-    --p-trim-left-r $trim_r \
-    --p-trunc-len-r $trunc_r \
-    --p-trunc-len-f $trunc_f \
-    ...
+if [ "$pass_fail" = pass ]
+then
+    qiime dada2 denoise-paired \
+        --i-demultiplexed-seqs ${input_qza} \
+        --p-trim-left-f $trim_f \
+        --p-trim-left-r $trim_r \
+        --p-trunc-len-r $trunc_r \
+        --p-trunc-len-f $trunc_f \
+        ...
+else
+    echo "Quality checks failed on demux_summary.qvz!" >&2
+    exit 1
+fi
+
 ```
 
 ### Not using Qiime2? Create the quantile files manually

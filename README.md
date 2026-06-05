@@ -1,10 +1,10 @@
 # ai_quality_threshold
 
-Use an LLM to automatically suggest trimming thresholds based on quality criteria. The output may be used in automation to skip a manual step, furlow poor quality samples, or simply evaluate quality.
+Use an LLM to automatically suggest trimming thresholds based on quality criteria. The output may be used in automation to skip a manual step, triage poor quality samples, or simply evaluate quality.
 
 <a href="img/ai_quality_threshold_plot_good.png"><img src="img/ai_quality_threshold_plot_good.png" width=500px></a><a href="img/ai_quality_threshold_plot_degrade_global_2.png"><img src="img/ai_quality_threshold_plot_degrade_global_2.png" width=500px></a>
 
-A good set of paired fastq reads *top* and a degraded set *bottom*. The red area shows the AI recommended trim. Click on the image to see more detail, including the AI generated rationale below the plots.
+A good set of paired fastq reads *top* and a degraded set *bottom*. The red area shows the AI recommended truncation parameter (3') and a heuristic applied to trim the 5'. Click on the image to see more detail, including the AI generated rationale for the 3' estimates below the plots.
 
 ### Description
 
@@ -39,6 +39,9 @@ ai_quality_threshold_plot.json:
 
 ```json
 {
+  "pass_fail": "pass",
+  "trim_left_f": 12,
+  "trim_left_r": 9,
   "trunc_len_f": 240,
   "trunc_len_r": 240,
   "reasoning": "The forward reads maintain a quality score above 25 (25th percentile) until position 240, while the reverse reads show a significant drop in quality starting at position 240. To ensure high-quality reads and sufficient overlap for merging, truncation is recommended at 240 for both forward and reverse reads. This truncation maintains a conservative approach given the unknown amplicon length."

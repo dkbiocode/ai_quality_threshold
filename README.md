@@ -8,7 +8,22 @@ A good set of paired fastq reads *top* and a degraded set *bottom*. The red area
 
 ### Description
 
-This repo contains a script to ask AI to apply specific rules to data in order to suggest quality trimming parameters. The performance depends on the data, so this repo also contains a framework for randomly degrading the quality scores of a given pair of fastq files. In order to do this efficiently on large files, I developed [fastq_chunk](github.com/dkbiocode/fastq_chunk), a python package for distributing a user defined function across multiple compute cores. 
+This script ai_fastq_choose_thresholds.py, applies a combination of hard-coded quantitative thresholds and an AI step in order to suggest adequate parameters for trimming and read truncation. It takes a profile of quantiles per read position, as produced by Qiime2's "seven number summary" format, and yields a graph of the suggested parameters and a json file. These results can be used as a guide to aid interpretation and human choices for parameters, or applied automatically to bridge workflows that are separated by human intervention.
+
+Note: it is particularly useful when the data provider didn't tell you anything about their filter, adapter trimming, or experimental setup.
+
+### Validation
+
+#### 3' truncation
+
+The performance depends on the data, so this repo also contains a framework for randomly degrading the quality scores of a given pair of fastq files. In order to do this efficiently on large files, I developed [fastq_chunk](github.com/dkbiocode/fastq_chunk), a python package for distributing a user defined function across multiple compute cores. 
+
+[fastq_chunk](github.com/dkbiocode/fastq_chunk) is also available to be installed [directly via pip](https://pypi.org/project/fastq-chunk/).
+
+
+#### 5' trimming
+
+Additionally, the LLM performed poorly on 5' trimming estimates. I vibe-coded an analysis, asking Claude to produce quantile profiles of different shapes, and test them with a *heuristic*, a code-only set of rules, against the AI prompt. In all cases, the heuristic performed adequately on the test data, whereas the AI result was insufficient. This validation script is *explore_trim_left.py*.
 
 ## Usage
 

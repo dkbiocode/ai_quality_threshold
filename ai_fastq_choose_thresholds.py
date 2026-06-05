@@ -74,7 +74,6 @@ def plot_quality_summary(
     label: str,
     trunc_len: int,
     base_color: str,
-    trim_color: str,
     window_start: Optional[int] = None,
     q25_threshold: float = 0,
     q50_threshold: float = 0,
@@ -85,16 +84,12 @@ def plot_quality_summary(
     box_bottom = df.loc['25%'].to_numpy()
     box_top = df.loc['75%'].to_numpy()
     box_height = box_top - box_bottom
-    bar_colors = [
-        trim_color if pos > trunc_len or (trim_left > 0 and pos <= trim_left) else base_color
-        for pos in positions
-    ]
 
     axes.bar(
         positions,
         box_height,
         bottom=box_bottom,
-        color=bar_colors,
+        color=base_color,
         edgecolor='black',
         linewidth=0.4,
         width=0.8,
@@ -109,9 +104,13 @@ def plot_quality_summary(
         axes.vlines(pos, q9[i],  q91[i], color='black', alpha=0.5,  linewidth=1.0)
 
     axes.plot(positions, df.loc['50%'].to_numpy(), color='black', linewidth=1.4, label='Median (50%)')
-    axes.axvline(trunc_len, color='red', linestyle='--', linewidth=1.2, label=f"3' trunc at {trunc_len}")
+
     if trim_left > 0:
-        axes.axvline(trim_left + 0.5, color='darkorange', linestyle='--', linewidth=1.2, label=f"5' trim at {trim_left}")
+        axes.axvspan(positions[0] - 0.5, trim_left + 0.5, alpha=0.12, color='red', zorder=0, label=f"5' trim ({trim_left} bp)")
+    axes.axvspan(trunc_len + 0.5, positions[-1] + 0.5, alpha=0.12, color='red', zorder=0, label=f"3' trunc at {trunc_len}")
+    axes.axvline(trunc_len + 0.5, color='red', linestyle='--', linewidth=1.2)
+    if trim_left > 0:
+        axes.axvline(trim_left + 0.5, color='red', linestyle='--', linewidth=1.2)
     if window_start is not None:
         axes.axvline(window_start, color='orange', linestyle=':', linewidth=4.0, label=f'analysis window (pos {window_start})')
     if q25_threshold > 0:
@@ -147,7 +146,6 @@ def build_plot(
         label='Forward',
         trunc_len=trunc_len_f,
         base_color='skyblue',
-        trim_color='red',
         window_start=fwd_window_start,
         q25_threshold=min_q_25p,
         q50_threshold=min_q_50p,
@@ -159,7 +157,6 @@ def build_plot(
         label='Reverse',
         trunc_len=trunc_len_r,
         base_color='lightgreen',
-        trim_color='red',
         window_start=rev_window_start,
         q25_threshold=min_q_25p,
         q50_threshold=min_q_50p,
